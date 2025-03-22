@@ -1,0 +1,28 @@
+{
+  "name": "pmegp",
+  "version": "1.0.0",
+  "description": "A full-stack application with Express, React, TypeScript, Shadcn, Tailwind, and React Router",
+  "main": "index.js",
+  "scripts": {
+    "dev:client": "cd client && pnpm run dev",
+    "dev:server": "cd server && pnpm run dev",
+    "dev": "concurrently \"pnpm run dev:server\" \"pnpm run dev:client\"",
+    "build:client": "cd client && pnpm run build",
+    "build:server": "cd server && pnpm run build",
+    "build": "pnpm run build:server && pnpm run build:client",
+    "start": "cd server && pnpm run start"
+  },
+  "keywords": [
+    "express",
+    "react",
+    "typescript",
+    "shadcn",
+    "tailwind",
+    "react-router"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+} 
