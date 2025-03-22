@@ -1,10 +1,10 @@
 import type { ColumnDef } from "@tanstack/react-table";
 import { ArrowUpDown } from "lucide-react";
+import { DataTable } from "./ui/data-table/data-table";
+import { DataTableColumnFilter } from "./ui/data-table/column-filter";
+import { RangeFilter } from "./ui/data-table/range-filter";
+import { Button } from "./ui/button";
 import type { Project } from "../lib/types";
-import { DataTableColumnFilter } from "~/components/ui/data-table/column-filter";
-import { RangeFilter } from "~/components/ui/data-table/range-filter";
-import { DataTable } from "~/components/ui/data-table/data-table";
-import { Select, SelectContent, SelectTrigger, SelectValue, SelectItem } from "./ui/select";
 
 interface ProjectsTableProps {
 	projects: Project[];
@@ -19,13 +19,11 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
 		{
 			accessorKey: "title",
 			header: ({ column }) => (
-				<div className="flex gap-2 items-center"
+				<div className="flex gap-2 items-center" role="button"
+
+					onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
 				>
-					<div className="flex gap-2 items-center"
-						role="button"
-						onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-						Title
-					</div>
+					Title
 					<ArrowUpDown className="ml-2 h-4 w-4" />
 
 					<DataTableColumnFilter
@@ -40,20 +38,19 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
 			accessorKey: "category",
 			header: ({ column }) => (
 				<div className="flex gap-2 items-center">
-					<Select
-						onValueChange={(value) => {
-							column.setFilterValue(value);
+					Category
+					<select
+						onChange={(e) => {
+							const selectedCategory = e.target.value;
+							column.setFilterValue(selectedCategory);
 						}}
+						className="ml-2 border rounded"
 					>
-						<SelectTrigger className="border rounded">
-							<SelectValue placeholder="Filter by category..." />
-						</SelectTrigger>
-						<SelectContent >
-							{uniqueCategories.map(category => (
-								<SelectItem key={category} value={category}>{category}</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
+						<option value="">All</option>
+						{uniqueCategories.map(category => (
+							<option key={category} value={category}>{category}</option>
+						))}
+					</select>
 				</div>
 			),
 		},
@@ -69,15 +66,15 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
 				return true;
 			},
 			header: ({ column }) => (
-				<div className="flex gap-2 flex-col justify-center items-start">
-					<div className="flex gap-2 items-center"
-						role="button"
-						onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-						Cost (₹)
-						<ArrowUpDown className="ml-2 h-4 w-4" />
-					</div>
+				<div className="flex gap-2 items-center"
+					role="button"
+					onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
+				>
+					Cost (₹)
+					<ArrowUpDown className="ml-2 h-4 w-4" />
 					<RangeFilter
 						column={column}
+						title="Cost Range"
 					/>
 				</div>
 			),
@@ -113,20 +110,7 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
 
 	return (
 		<div className="container mx-auto py-6">
-			<h1 className="text-2xl font-bold mb-4 text-center">PMEGP - Info</h1>
-			<p className="text-sm text-gray-600 dark:text-gray-400 mb-6 italic">
-				All information is sourced from the PMEGP portal at{" "}
-				<a
-					href="https://www.kviconline.gov.in/pmegp/pmegpweb/docs/jsp/newprojectReports.jsp"
-					target="_blank"
-					rel="noopener noreferrer"
-					className="text-blue-600 hover:underline"
-				>
-					kviconline.gov.in
-				</a>
-				. This website does not claim any copyrights to the information presented.
-				The data is displayed for educational purposes and easier accessibility only.
-			</p>
+			<h1 className="text-2xl font-bold mb-6">PMEGP - Info</h1>
 			<DataTable columns={columns} data={projects} />
 		</div>
 	);

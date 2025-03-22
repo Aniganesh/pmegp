@@ -53,13 +53,13 @@ export function DataTable<TData, TValue>({
 	return (
 		<div>
 			<div className="rounded-md border">
-				<table className="w-full">
+				<table className="w-full table-fixed">
 					<thead>
 						{table.getHeaderGroups().map((headerGroup) => (
 							<tr key={headerGroup.id} className="border-b">
-								{headerGroup.headers.map((header) => {
+								{headerGroup.headers.map((header, index) => {
 									return (
-										<th key={header.id} className="p-2 text-left font-medium">
+										<th key={header.id} className={`p-2 text-left font-medium ${index === 0 ? 'w-[40%]' : 'w-[20%]'}`}>
 											{header.isPlaceholder
 												? null
 												: flexRender(
@@ -77,11 +77,11 @@ export function DataTable<TData, TValue>({
 							table.getRowModel().rows.map((row) => (
 								<tr
 									key={row.id}
-									className="border-b hover:bg-gray-900"
+									className="border-b hover:bg-gray-300/30 dark:hover:bg-gray-900 text-gray-800 dark:text-gray-200 h-16"
 									data-state={row.getIsSelected() && "selected"}
 								>
-									{row.getVisibleCells().map((cell) => (
-										<td key={cell.id} className="p-2">
+									{row.getVisibleCells().map((cell, index) => (
+										<td key={cell.id} className={`p-2 ${index === 0 ? 'w-[40%]' : 'w-[20%]'}`}>
 											{flexRender(
 												cell.column.columnDef.cell,
 												cell.getContext()
@@ -92,7 +92,7 @@ export function DataTable<TData, TValue>({
 							))
 						) : (
 							<tr>
-								<td colSpan={columns.length} className="h-24 text-center">
+								<td colSpan={columns.length} className="h-16 text-center">
 									No results.
 								</td>
 							</tr>
@@ -121,13 +121,13 @@ export function DataTable<TData, TValue>({
 				</div>
 				<div className="flex items-center space-x-2">
 					<div className="flex-1 text-sm text-gray-600">
-						{table.getFilteredRowModel().rows.length} of {data.length} row(s)
+						{table.getPaginationRowModel().rows.length} of {table.getFilteredRowModel().rows.length} row(s)
 					</div>
 					<div className="space-x-2">
 						<Button
 							variant="outline"
 							size="sm"
-							onClick={() => table.previousPage()}
+							onClick={() => { setPagination((curr) => ({ ...curr, pageIndex: curr.pageIndex - 1 })); }}
 							disabled={!table.getCanPreviousPage()}
 						>
 							Previous
@@ -135,7 +135,7 @@ export function DataTable<TData, TValue>({
 						<Button
 							variant="outline"
 							size="sm"
-							onClick={() => table.nextPage()}
+							onClick={() => { setPagination((curr) => ({ ...curr, pageIndex: curr.pageIndex + 1 })); }}
 							disabled={!table.getCanNextPage()}
 						>
 							Next

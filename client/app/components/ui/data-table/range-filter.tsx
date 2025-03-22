@@ -3,12 +3,10 @@ import { Input } from "../input";
 
 interface RangeFilterProps<TData> {
   column: Column<TData, unknown>;
-  title: string;
 }
 
 export function RangeFilter<TData>({
   column,
-  title,
 }: RangeFilterProps<TData>) {
 
 
@@ -16,7 +14,6 @@ export function RangeFilter<TData>({
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="text-sm font-medium">{title}</div>
       <div className="flex gap-2">
         <Input
           type="number"
