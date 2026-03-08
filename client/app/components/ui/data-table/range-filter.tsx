@@ -18,8 +18,9 @@ export function RangeFilter<TData>({
         <Input
           type="number"
           placeholder="Min"
-          value={(column.getFilterValue() as any)?.min}
+          value={(column.getFilterValue() as any)?.min ?? ""}
           onChange={(e) => {
+            e.stopPropagation();
             column.setFilterValue({ min: e.target.value, max: (column.getFilterValue() as any)?.max });
           }}
           className="h-8 w-[100px]"
@@ -27,8 +28,9 @@ export function RangeFilter<TData>({
         <Input
           type="number"
           placeholder="Max"
-          value={(column.getFilterValue() as any)?.max}
+          value={(column.getFilterValue() as any)?.max ?? ""}
           onChange={(e) => {
+            e.stopPropagation();
             column.setFilterValue({ min: (column.getFilterValue() as any)?.min, max: e.target.value });
           }}
           className="h-8 w-[100px]"

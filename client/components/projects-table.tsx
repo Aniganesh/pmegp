@@ -42,13 +42,18 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
 				<div className="flex gap-2 items-center">
 					<Select
 						onValueChange={(value) => {
-							column.setFilterValue(value);
+							if(value === "all") {
+								column.setFilterValue(undefined);
+							} else {
+								column.setFilterValue(value);
+							}
 						}}
 					>
 						<SelectTrigger className="border rounded">
 							<SelectValue placeholder="Filter by category..." />
 						</SelectTrigger>
 						<SelectContent >
+							<SelectItem value="all">All</SelectItem>
 							{uniqueCategories.map(category => (
 								<SelectItem key={category} value={category}>{category}</SelectItem>
 							))}
