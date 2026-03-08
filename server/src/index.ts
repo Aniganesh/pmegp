@@ -1,30 +1,33 @@
-import express, { Request, Response } from 'express';
+import express from 'express';
 import cors from 'cors';
-import path from 'path';
-import fs from 'fs';
+import mongoose from 'mongoose';
+import { env } from './config';
+import chatRoutes from './routes/chat.routes';
 
 const app = express();
-const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// Read projects data
-const projectsFilePath = path.join(__dirname, '../projects.json');
-const projectsData = JSON.parse(fs.readFileSync(projectsFilePath, 'utf8'));
+// Connect to MongoDB
+mongoose.connect(env.MONGODB_URI)
+  .then(() => console.log('✅ Connected to MongoDB'))
+  .catch((error) => {
+    console.error('❌ MongoDB connection error:', error);
+    process.exit(1);
+  });
 
 // Routes
-app.get('/', (req: Request, res: Response) => {
-  res.send('API is running');
-});
+app.use('/api/chat', chatRoutes);
 
-// API endpoint to get projects data
-app.get('/api/projects', (req: Request, res: Response) => {
-  res.json(projectsData);
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const port = env.PORT;
+app.listen(port, () => {
+  console.log(`🚀 Server running on port ${port}`);
 });
