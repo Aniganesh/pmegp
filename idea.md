@@ -1,4 +1,3 @@
-Okay, given your expertise with TypeScript, React, MongoDB, and some basic LLM/cloud knowledge, here's a tech stack and a detailed explanation of how to build your AI Chat app, along with some code snippets.
 
 **Tech Stack**
 
