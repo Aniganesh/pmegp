@@ -4,137 +4,84 @@ This file provides context for AI agents operating in this repository.
 
 ## Project Overview
 
-Full-stack application with:
-- **Frontend**: React 19, React Router v7 (framework mode), TypeScript, Tailwind CSS v4, Shadcn UI components
+Full-stack PMEGP project portal with AI chat capability:
+- **Frontend**: React 19, React Router v7 (framework mode), TypeScript, Tailwind CSS v4, Shadcn UI
 - **Backend**: Express.js with TypeScript
+- **AI Stack**: Google Gemini + Pinecone (vector search) + MongoDB (chat history)
 - **Package Manager**: pnpm
 
 ```
 .
-├── client/              # React frontend
-│   ├── app/            # React Router app directory (use path alias: ~/*)
-│   ├── components/     # Legacy components (being migrated to app/)
-│   └── lib/           # Utilities and types
-└── server/            # Express backend
-    └── src/           # TypeScript source
+├── client/              # React frontend (port 5173)
+│   └── app/            # React Router app (use path alias: ~/*)
+├── server/            # Express backend (port 5000)
+│   ├── src/           # TypeScript source
+│   └── pdfs/         # PMEGP PDF files (temporary)
+└── projects.json     # Temporary project data (will be replaced with AI RAG)
 ```
 
 ---
 
 ## Build Commands
 
-### Root Commands (pnpm)
+### Root (pnpm)
 ```bash
-pnpm run dev          # Start both client (5173) and server (5000)
+pnpm run dev          # Both client + server
 pnpm run dev:client   # Client only
 pnpm run dev:server   # Server only
-pnpm run build        # Build both client and server
-pnpm run build:client # Build client for production
-pnpm run build:server # Build server for production
-pnpm run start        # Start production server
+pnpm run build        # Build both
+pnpm run start        # Production server
 ```
 
-### Client Commands (cd client)
+### Client
 ```bash
 cd client
-pnpm run dev          # React Router dev server (port 5173)
+pnpm run dev          # Dev server (5173)
 pnpm run build        # Production build
-pnpm run start        # Run production build
-pnpm run typecheck    # TypeScript type checking
-# Note: No ESLint script configured - run via npx eslint
+pnpm run typecheck    # TypeScript check
+npx eslint . --ext ts,tsx  # Lint
 ```
 
-### Server Commands (cd server)
+### Server
 ```bash
 cd server
-pnpm run dev          # Dev with nodemon + ts-node (port 5000)
-pnpm run build        # Compile TypeScript (outputs to dist/)
-pnpm run watch        # Watch mode for TypeScript
-pnpm run start        # Run compiled server
+pnpm run dev          # Dev with nodemon (5000)
+pnpm run build        # Compile to dist/
+pnpm run start        # Run compiled
 ```
 
-### Linting
-```bash
-# Client ESLint
-cd client && npx eslint . --ext ts,tsx
-
-# TypeScript check (client)
-cd client && pnpm run typecheck
-```
-
-### Testing
-- **No test framework configured** - The server has a placeholder test script
-- To add tests, consider installing Vitest (matches Vite) or Jest
+**Testing**: No test framework configured.
 
 ---
 
-## Code Style Guidelines
+## Code Style
 
-### TypeScript Configuration
-
-**Client** (`client/tsconfig.json`):
-- Strict mode enabled
-- Path alias: `~/*` maps to `./app/*`
-- Module: ES2022
-- No emit (builds handled by Vite)
-
-**Server** (`server/tsconfig.json`):
-- Strict mode enabled
-- Module: CommonJS
-- Target: ES2016
+### TypeScript
+- **Client**: Strict mode, `~/*` maps to `./app/*`, ES2022
+- **Server**: Strict mode, CommonJS, ES2016
 
 ### Import Conventions
-
-**Client (use path aliases)**:
 ```typescript
-// Good - use path alias
+// Client - use path aliases
 import { Button } from "~/components/ui/button";
 import { cn } from "~/lib/utils";
-import type { Project } from "~/lib/types";
 
-// Bad - relative path from app/
-import { Button } from "../../components/ui/button";
-```
-
-**Server**:
-```typescript
-// Use relative imports
+// Server - relative imports
 import express, { Request, Response } from 'express';
-import cors from 'cors';
-import path from 'path';
 ```
 
-### Naming Conventions
-
+### Naming
 | Type | Convention | Example |
 |------|------------|---------|
-| Files | kebab-case | `data-table.tsx`, `project-utils.ts` |
-| Components | PascalCase | `ProjectsTable.tsx`, `Button.tsx` |
-| Functions | camelCase | `formatCurrency()`, `getProjects()` |
-| Interfaces/Types | PascalCase | `Project`, `RouteConfig` |
-| Constants | SCREAMING_SNAKE | `PORT`, `API_BASE_URL` |
-| CSS Classes | kebab-case (Tailwind) | `className="flex gap-2 items-center"` |
+| Files | kebab-case | `data-table.tsx` |
+| Components | PascalCase | `ProjectsTable.tsx` |
+| Functions | camelCase | `getProjects()` |
+| Interfaces | PascalCase | `Project` |
+| Constants | SCREAMING_SNAKE | `PORT` |
 
 ### React Patterns
-
-**Component Structure**:
 ```typescript
-// Client components use function syntax with explicit types
-import type { ComponentProps } from "~/routes/+types/home";
-
-interface ProjectsTableProps {
-  projects: Project[];
-}
-
-export function ProjectsTable({ projects }: ProjectsTableProps) {
-  // Component logic
-  return (/* JSX */);
-}
-```
-
-**React Router v7 Patterns**:
-```typescript
-// Route with loader
+// React Router v7 route
 export async function loader() {
   const data = await fetchData();
   return { data };
@@ -144,33 +91,25 @@ export function meta() {
   return [{ title: "Page Title" }];
 }
 
-export default function RouteComponent({ loaderData }: Route.ComponentProps) {
+export default function Route({ loaderData }: Route.ComponentProps) {
   return <Component data={loaderData.data} />;
 }
 ```
 
 ### Error Handling
-
-**Client**:
-- Use try/catch in loaders
-- Return fallback data on error (don't throw to error boundary unless critical)
 ```typescript
+// Client - return fallback
 export async function loader() {
   try {
     const response = await fetch("/api/data");
     return { data: await response.json() };
   } catch (error) {
-    console.error("Error fetching data:", error);
-    return { data: [] }; // Return fallback
+    console.error("Error:", error);
+    return { data: [] };
   }
 }
-```
 
-**Server**:
-- Add error handling middleware
-- Return appropriate HTTP status codes
-```typescript
-// Example error handler middleware
+// Server - error middleware
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error(err.stack);
   res.status(500).json({ error: "Internal server error" });
@@ -178,64 +117,81 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 ```
 
 ### Tailwind CSS
-
-- Use Tailwind v4 syntax with `@tailwindcss/vite` plugin
-- Follow existing color patterns (from `tailwind.config.js`):
-  - `primary`, `secondary`, `destructive`, `muted`, `accent`
-  - Use `hsl(var(--color))` pattern for theme integration
+- Use v4 syntax with `@tailwindcss/vite`
 - Use `cn()` utility for conditional classes:
 ```typescript
-import { cn } from "~/lib/utils";
-
-<div className={cn(
-  "base-class",
-  condition && "conditional-class",
-  variant === "primary" && "bg-primary text-primary-foreground"
-)} />
+<div className={cn("base", condition && "conditional")} />
 ```
 
-### Data Fetching
+---
 
-- Client fetches from server at `http://localhost:5000/api/`
-- Use React Router loaders for SSR data fetching
-- Handle loading and error states appropriately
+## Architecture
+
+### Current Data Flow
+1. **Temporary**: `server/projects.json` → Express API → React Table
+2. **Target**: PDF files → Pinecone (embeddings) → AI Chat → Frontend
+
+### Server Structure
+```
+server/src/
+├── config/         # Environment variables
+├── controllers/   # Request handlers
+├── models/        # Mongoose models (Chat)
+├── routes/        # Express routes
+├── services/      # Business logic (ChatService, PDFService)
+├── types/         # TypeScript types
+└── index.ts       # Express app entry
+```
+
+### Key Dependencies
+- **AI**: `@google/generative-ai` (Gemini), `@pinecone-database/pinecone`
+- **Database**: `mongoose` (MongoDB)
+- **Validation**: `zod`
+
+---
+
+## Environment Variables
+
+Create `server/.env`:
+```bash
+PORT=5000
+MONGODB_URI=mongodb://localhost:27017/chat_app
+GOOGLE_API_KEY=your_google_api_key
+PINECONE_API_KEY=your_pinecone_api_key
+PINECONE_ENVIRONMENT=your_environment
+PINECONE_INDEX=your_index_name
+```
 
 ---
 
 ## File Organization
 
-### Client
-- `app/` - React Router app (routes, components using path aliases)
-- `components/` - Legacy components (being phased out)
-- `lib/` - Utilities (`utils.ts`, `types.ts`)
-
-### Server
-- `src/` - Express app source
-- `projects.json` - Data file (read at runtime)
+| Directory | Purpose |
+|-----------|---------|
+| `client/app/` | React Router routes and components |
+| `client/components/` | UI components |
+| `client/lib/` | Utilities (`utils.ts`, `types.ts`) |
+| `server/src/` | Express app |
+| `server/pdfs/` | PMEGP PDF files (temporary) |
+| `server/projects.json` | Temporary project list |
 
 ---
 
 ## Common Tasks
 
-### Adding a New Route
-1. Create `app/routes/filename.tsx`
-2. Export loader, meta, and default component
-3. React Router v7 auto-discovers routes
+**New Route**: Create `app/routes/filename.tsx` with loader, meta, default export
 
-### Adding a New UI Component
-1. Use existing shadcn pattern: `app/components/ui/component-name/`
-2. Follow existing component patterns in `app/components/ui/`
+**New UI Component**: Follow shadcn pattern in `app/components/ui/`
 
-### Adding a New API Endpoint
-1. Edit `server/src/index.ts`
-2. Add route handler before `app.listen()`
-3. Return JSON response
+**New API**: Edit `server/src/index.ts`, add route before `app.listen()`
+
+**Initialize PDFs to Pinecone**: Run `server/src/scripts/initializePDFs.ts`
 
 ---
 
 ## Notes
 
-- Client hot reload works via Vite HMR
-- Server uses nodemon for hot reload
-- No database - data served from `server/projects.json`
-- Dark mode support via Tailwind's `dark:` classes
+- `projects.json` is **temporary** - will be replaced with AI RAG over PMEGP PDFs
+- Current frontend shows a projects table - needs AI chat UI
+- Server has full AI infrastructure ready (needs frontend integration)
+- Dark mode via Tailwind `dark:` classes
