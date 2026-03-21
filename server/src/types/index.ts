@@ -14,4 +14,9 @@ export interface Chat {
 export interface ChatResponse {
   answer: string;
   sourceDocuments?: string[];
+  usage?: {
+    used: number;
+    remaining: number;
+    resetAt: string;
+  };
 } 

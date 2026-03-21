@@ -1,14 +1,20 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import mongoose from 'mongoose';
+import fs from 'fs';
+import path from 'path';
 import { env } from './config';
 import chatRoutes from './routes/chat.routes';
+import { userIdentification } from './middleware/user';
 
 const app = express();
 
 // Middleware
 app.use(cors());
+app.use(cookieParser());
 app.use(express.json());
+app.use(userIdentification);
 
 // Connect to MongoDB
 mongoose.connect(env.MONGODB_URI)
@@ -20,6 +26,12 @@ mongoose.connect(env.MONGODB_URI)
 
 // Routes
 app.use('/api/chat', chatRoutes);
+
+app.get('/api/projects', (req, res) => {
+  const projectsPath = path.join(__dirname, '../projects.json');
+  const projects = JSON.parse(fs.readFileSync(projectsPath, 'utf-8'));
+  res.json(projects);
+});
 
 // Health check endpoint
 app.get('/health', (req, res) => {
