@@ -40,7 +40,7 @@ export class PDFService {
       const dataBuffer = fs.readFileSync(filePath);
       const pdfData = await pdf(dataBuffer);
 
-      const chunks = this.splitTextIntoChunks(pdfData.text, 1000);
+      const chunks = this.splitTextIntoChunks(pdfData.text, 1000).filter(chunk => chunk.trim().length > 0);
 
       const records = chunks.map((chunk, i) => ({
         id: `${fileName}-chunk-${i}`,
