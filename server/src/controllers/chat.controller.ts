@@ -1,26 +1,48 @@
 import { Request, Response } from "express";
+import { env } from "../config";
 import { ChatService } from "../services/chat.service";
 import { LLMProvider } from "../services/llm.service";
-import { env } from "../config";
 
 const chatService = new ChatService();
+
+function userProvidedApiKey(req: Request): string | undefined {
+  const h = req.headers["x-api-key"];
+  if (typeof h === "string" && h.trim()) return h.trim();
+  if (
+    req.body &&
+    typeof (req.body as { apiKey?: string }).apiKey === "string" &&
+    (req.body as { apiKey: string }).apiKey.trim()
+  ) {
+    return (req.body as { apiKey: string }).apiKey.trim();
+  }
+  return undefined;
+}
+
+function resolveApiKey(req: Request): string {
+  return userProvidedApiKey(req) ?? env.GOOGLE_API_KEY;
+}
+
+function resolveProvider(req: Request): LLMProvider {
+  const h = req.headers["x-api-provider"];
+  if (h === "google" || h === "openai" || h === "anthropic") return h;
+  const b = (req.body as { provider?: string })?.provider;
+  if (b === "google" || b === "openai" || b === "anthropic") return b;
+  return "google";
+}
 
 export class ChatController {
   async ask(req: Request, res: Response) {
     try {
       const { question } = req.body;
       const userId = (req as any).userId || "anonymous";
-      const userApiKey = req.headers["x-api-key"] as string;
-      const provider =
-        (req.headers["x-api-provider"] as LLMProvider) || "google";
 
       if (!question) {
         return res.status(400).json({ error: "Question is required" });
       }
 
       const llmConfig = {
-        provider,
-        apiKey: userApiKey || env.GOOGLE_API_KEY,
+        provider: resolveProvider(req),
+        apiKey: resolveApiKey(req),
       };
 
       const response = await chatService.generateAnswer(
@@ -52,8 +74,7 @@ export class ChatController {
   async getUsage(req: Request, res: Response) {
     try {
       const userId = (req as any).userId || "anonymous";
-      const userApiKey = req.headers["x-api-key"] as string;
-      const hasBYOK = !!userApiKey;
+      const hasBYOK = !!userProvidedApiKey(req);
 
       const usage = chatService.getUsage(userId);
       return res.json({
@@ -100,8 +121,6 @@ export class ChatController {
   async stream(req: Request, res: Response) {
     const question = req.body.question as string;
     const userId = (req as any).userId || "anonymous";
-    const userApiKey = req.headers["x-api-key"] as string;
-    const provider = (req.headers["x-api-provider"] as LLMProvider) || "google";
 
     if (!question) {
       return res.status(400).json({ error: "Question is required" });
@@ -112,10 +131,14 @@ export class ChatController {
     res.setHeader("Connection", "keep-alive");
 
     try {
+      const body = req.body as { model?: string };
+      const modelFromQuery =
+        typeof req.query.model === "string" ? req.query.model : undefined;
+
       const llmConfig = {
-        provider,
-        apiKey: userApiKey || env.GOOGLE_API_KEY,
-        model: req.query.model as string,
+        provider: resolveProvider(req),
+        apiKey: resolveApiKey(req),
+        model: body.model ?? modelFromQuery,
       };
 
       const stream = chatService.streamAnswer(question, userId, llmConfig);

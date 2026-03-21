@@ -11,12 +11,18 @@ export interface Chat {
   updatedAt: Date;
 }
 
+export interface WebSearchSource {
+  url: string;
+  title?: string;
+}
+
 export interface ChatResponse {
   answer: string;
   sourceDocuments?: string[];
+  webSearchSources?: WebSearchSource[];
   usage?: {
     used: number;
     remaining: number;
     resetAt: string;
   };
-} 
+}
