@@ -1,13 +1,8 @@
 import fs from 'fs';
 import path from 'path';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import pdf from 'pdf-parse';
 import { env } from '../config';
-
-const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY);
-const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-const embedModel = genAI.getGenerativeModel({ model: "embedding-001" });
 
 const pinecone = new Pinecone({
   apiKey: env.PINECONE_API_KEY,
@@ -30,7 +25,6 @@ export class PDFService {
           console.log(`✅ Processed ${pdfFile}`);
         } catch (error) {
           console.error(`❌ Error processing ${pdfFile}:`, error);
-          // Continue with next file even if one fails
         }
       }
 
@@ -41,35 +35,23 @@ export class PDFService {
     }
   }
 
-  private async processPDF(filePath: string, fileName: string): Promise<void> {
+  async processPDF(filePath: string, fileName: string): Promise<void> {
     try {
-      // Read PDF file
       const dataBuffer = fs.readFileSync(filePath);
       const pdfData = await pdf(dataBuffer);
 
-      // Split text into chunks (approximately 1000 characters each)
       const chunks = this.splitTextIntoChunks(pdfData.text, 1000);
 
-      // Process each chunk
-      for (let i = 0; i < chunks.length; i++) {
-        const chunk = chunks[i];
-        
-        // Generate embedding using Gemini
-        const embedding = await this.generateEmbedding(chunk);
+      const records = chunks.map((chunk, i) => ({
+        id: `${fileName}-chunk-${i}`,
+        text: chunk,
+        source: fileName,
+        page: String(Math.floor(i / 2) + 1),
+      }));
 
-        // Store in Pinecone
-        await this.index.upsert({
-          vectors: [{
-            id: `${fileName}-chunk-${i}`,
-            values: embedding,
-            metadata: {
-              text: chunk,
-              source: fileName,
-              page: Math.floor(i / 2) + 1, // Rough page estimation
-            }
-          }]
-        });
-      }
+      await this.index.upsertRecords({
+        records,
+      });
     } catch (error) {
       console.error(`Error processing PDF ${fileName}:`, error);
       throw error;
@@ -81,10 +63,8 @@ export class PDFService {
     let startIndex = 0;
 
     while (startIndex < text.length) {
-      // Find the end of the current chunk
       let endIndex = startIndex + chunkSize;
       
-      // Adjust to end at a sentence or paragraph if possible
       if (endIndex < text.length) {
         const nextPeriod = text.indexOf('.', endIndex);
         const nextNewline = text.indexOf('\n', endIndex);
@@ -102,15 +82,4 @@ export class PDFService {
 
     return chunks;
   }
-
-  private async generateEmbedding(text: string): Promise<number[]> {
-    try {
-      const result = await embedModel.embedContent(text);
-      const embedding = result.embedding.values;
-      return embedding;
-    } catch (error) {
-      console.error('Error generating embedding:', error);
-      throw error;
-    }
-  }
-} 
+}
