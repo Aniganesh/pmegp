@@ -10,6 +10,7 @@ const envSchema = z.object({
   PINECONE_API_KEY: z.string(),
   PINECONE_ENVIRONMENT: z.string(),
   PINECONE_INDEX: z.string(),
+  FREE_QUERIES_PER_DAY: z.string().default('10'),
 });
 
 const parsed = envSchema.safeParse(process.env);
