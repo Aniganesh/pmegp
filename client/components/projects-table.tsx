@@ -133,7 +133,7 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
 
   return (
     <div className="max-h-[calc(100vh-50px)] py-6 overflow-y-auto ">
-      <div className="max-w-4xl mx-auto">
+      <div className="container mx-auto">
         <h1 className="text-2xl font-bold mb-4 text-center">PMEGP - Info</h1>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-6 italic">
           All information is sourced from the PMEGP portal at{" "}
