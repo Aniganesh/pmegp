@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   AgentEventManager,
   AgentStreamEvent,
@@ -33,6 +33,8 @@ export interface UseStreamingAgentOptions {
   conversationId?: string;
   extraBody?: Record<string, unknown>;
   onConversationTitle?: (title: string) => void;
+  initialMessages?: ChatMessage[];
+  onConversationId?: (id: string) => void;
 }
 
 export interface UseStreamingAgentReturn {
@@ -56,14 +58,22 @@ export const useStreamingAgent = ({
   conversationId,
   extraBody,
   onConversationTitle,
+  initialMessages,
+  onConversationId,
 }: UseStreamingAgentOptions): UseStreamingAgentReturn => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    () => initialMessages ?? [],
+  );
   const [isConnecting, setIsConnecting] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const eventSourceRef = useRef<AgentEventManager | null>(null);
   const conversationIdRef = useRef<string | null>(conversationId || null);
+
+  useEffect(() => {
+    conversationIdRef.current = conversationId ?? null;
+  }, [conversationId]);
 
   // Track only the ID of the current streaming message (never the full object).
   // Storing the full object caused React StrictMode double-invocation to read a
@@ -85,6 +95,7 @@ export const useStreamingAgent = ({
           if (event.conversationId) {
             conversationIdRef.current = event.conversationId;
             localStorage.setItem(storageKey, event.conversationId);
+            onConversationId?.(event.conversationId);
           }
           break;
         default:
@@ -279,6 +290,7 @@ export const useStreamingAgent = ({
           if (event.conversationId) {
             conversationIdRef.current = event.conversationId;
             localStorage.setItem(storageKey, event.conversationId);
+            onConversationId?.(event.conversationId);
           }
           if (
             typeof event.conversationTitle === "string" &&
@@ -293,6 +305,11 @@ export const useStreamingAgent = ({
         case "error":
           if (event.error) {
             console.error(event.error);
+            setError(
+              typeof event.error === "string"
+                ? event.error
+                : "Something went wrong",
+            );
           }
           break;
 
@@ -300,7 +317,7 @@ export const useStreamingAgent = ({
           break;
       }
     },
-    [onConversationTitle, storageKey],
+    [onConversationId, onConversationTitle, storageKey],
   );
 
   const handleComplete = useCallback(() => {

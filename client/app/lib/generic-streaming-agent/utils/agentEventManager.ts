@@ -113,6 +113,7 @@ export class AgentEventManager {
       headers,
       body: JSON.stringify(body),
       signal: this.abortController.signal,
+      credentials: "include",
     });
 
     if (isDev) {

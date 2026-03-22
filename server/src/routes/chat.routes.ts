@@ -4,6 +4,16 @@ import { ChatController } from "../controllers/chat.controller";
 const router = Router();
 const chatController = new ChatController();
 
+router.get("/conversations", function (req, res) {
+  chatController.listConversations(req, res);
+});
+router.get("/conversations/:id", function (req, res) {
+  chatController.getConversation(req, res);
+});
+router.delete("/conversations/:id", function (req, res) {
+  chatController.deleteConversation(req, res);
+});
+
 router.post("/ask", function (req, res) {
   chatController.ask(req, res);
 });

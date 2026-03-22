@@ -1,7 +1,9 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, stepCountIs, streamText } from "ai";
+// @ts-ignore
+import { dynamicTool, generateText, stepCountIs, streamText } from "ai";
+import { z } from "zod";
 
 export type LLMProvider = "google" | "openai" | "anthropic";
 
@@ -11,8 +13,40 @@ export interface LLMConfig {
   model?: string;
 }
 
+/** Indexed PDF retrieval; implemented in ChatService (Pinecone). */
+export type RetrievePmegpFn = (
+  query: string,
+) => Promise<{ context: string; sources: string[] }>;
+
+export const PMEGP_SYSTEM_PROMPT = `You help users understand the Prime Minister's Employment Generation Programme (PMEGP) in India and what information is provided for each sponsored project (scheme materials and project profiles from government PDFs).
+
+Use the retrieve tool to fetch relevant passages from the indexed scheme PDFs when needed. If a web search tool is available in this session, you may use it for current or external facts; otherwise rely on retrieved materials and your general knowledge within this mandate. If you cannot answer usefully, say so clearly.`;
+
 const MAX_TOOL_STEPS = 15;
 const STOP_AFTER_STEPS = stepCountIs(MAX_TOOL_STEPS);
+const MAX_HISTORY_MESSAGES = 20;
+
+function toLlmMessages(
+  threadMessages: Array<{ role: string; content: string }>,
+): { role: "user" | "assistant"; content: string }[] {
+  const sliced = threadMessages.slice(-MAX_HISTORY_MESSAGES);
+  return sliced
+    .filter((m) => m.role === "user" || m.role === "assistant")
+    .map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    }));
+}
+
+function promptOrMessages(
+  fallbackQuestion: string,
+  threadMessages?: Array<{ role: string; content: string }>,
+): { prompt: string } | { messages: ReturnType<typeof toLlmMessages> } {
+  if (threadMessages && threadMessages.length > 0) {
+    return { messages: toLlmMessages(threadMessages) };
+  }
+  return { prompt: fallbackQuestion };
+}
 
 function getDefaultModel(provider: LLMProvider): string {
   switch (provider) {
@@ -27,19 +61,38 @@ function getDefaultModel(provider: LLMProvider): string {
   }
 }
 
-export function buildRagPrompt(context: string, question: string): string {
-  const hasContext = context.trim().length > 0;
-  const contextBlock = hasContext
-    ? `Retrieved scheme materials (from government PDFs on PMEGP-sponsored programmes):\n${context}`
-    : "No passages were retrieved from the scheme PDF index for this question (the index may be empty or not match).";
+const retrievePmegpInputSchema = z.object({
+  query: z.string(),
+});
 
-  return `You assist users with the Prime Minister's Employment Generation Programme (PMEGP) in India. Answer to the best of your knowledge and abilities using the tools available.
-
-${contextBlock}
-
-User question: ${question}
-
-How to use sources: You decide what to rely on—only the retrieved scheme materials above, only web search, or both—depending on what is needed for a accurate, helpful answer about PMEGP and related government-sponsored schemes. When retrieved text is authoritative for scheme rules or profiles, prefer it. If you need current facts, locations, policy updates, or details not in the materials, use web search. You may use both when that produces the best answer. If you cannot answer adequately even with these sources, say so clearly.`;
+function createRetrievePmegpTool(
+  retrievePmegp: RetrievePmegpFn,
+  ragSources: Set<string>,
+) {
+  return dynamicTool({
+    description:
+      "Search indexed PMEGP scheme PDFs (guidelines and per-project profiles) for passages relevant to the query. Use when the user needs scheme rules, project-specific details, or profile facts from those materials.",
+    inputSchema: retrievePmegpInputSchema as any,
+    execute: async (input: any) => {
+      const parsed = retrievePmegpInputSchema.safeParse(input);
+      if (!parsed.success) {
+        throw new Error("Invalid tool input: query string required");
+      }
+      const { query } = parsed.data;
+      const { context, sources } = await retrievePmegp(query);
+      for (const s of sources) {
+        if (s) ragSources.add(s);
+      }
+      const text = context.trim();
+      return {
+        passages:
+          text.length > 0
+            ? text
+            : "No matching passages were found in the index for this query.",
+        sourceFiles: sources,
+      };
+    },
+  });
 }
 
 export function extractWebSearchSources(
@@ -52,7 +105,8 @@ export function extractWebSearchSources(
     const url = "url" in s && typeof s.url === "string" ? s.url : undefined;
     if (!url || seen.has(url)) continue;
     seen.add(url);
-    const title = "title" in s && typeof s.title === "string" ? s.title : undefined;
+    const title =
+      "title" in s && typeof s.title === "string" ? s.title : undefined;
     out.push({ url, title });
   }
   return out;
@@ -60,55 +114,81 @@ export function extractWebSearchSources(
 
 export async function generateAnswer(
   question: string,
-  context: string,
   config: LLMConfig,
+  options: {
+    retrievePmegp: RetrievePmegpFn;
+    threadMessages?: Array<{ role: string; content: string }>;
+  },
 ): Promise<{
   answer: string;
   provider: LLMProvider;
   webSearchSources: { url: string; title?: string }[];
+  sourceDocuments: string[];
 }> {
-  const prompt = buildRagPrompt(context, question);
+  const ragSources = new Set<string>();
+  const retrieve_pmegp_context = createRetrievePmegpTool(
+    options.retrievePmegp,
+    ragSources,
+  );
   const modelId = config.model || getDefaultModel(config.provider);
+  const textInput = promptOrMessages(question, options.threadMessages);
 
   switch (config.provider) {
     case "google": {
+      // Gemini does not support mixing custom tools with provider tools (e.g. google_search) in one call.
       const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
       const result = await generateText({
+        // @ts-ignore
         model: google(modelId),
-        tools: { google_search: google.tools.googleSearch({}) } as any,
+        system: PMEGP_SYSTEM_PROMPT,
+        ...textInput,
+        tools: {
+          retrieve_pmegp_context,
+        } as any,
         toolChoice: "auto",
         stopWhen: STOP_AFTER_STEPS,
-        prompt,
       });
       return {
         answer: result.text,
         provider: "google",
         webSearchSources: extractWebSearchSources(result.sources),
+        sourceDocuments: [...ragSources],
       };
     }
     case "openai": {
       const openai = createOpenAI({ apiKey: config.apiKey });
       const result = await generateText({
+        // @ts-ignore
         model: openai(modelId),
-        tools: { web_search: openai.tools.webSearch({}) } as any,
+        system: PMEGP_SYSTEM_PROMPT,
+        ...textInput,
+        tools: {
+          retrieve_pmegp_context,
+          web_search: openai.tools.webSearch({}),
+        } as any,
         toolChoice: "auto",
         stopWhen: STOP_AFTER_STEPS,
-        prompt,
       });
       return {
         answer: result.text,
         provider: "openai",
         webSearchSources: extractWebSearchSources(result.sources),
+        sourceDocuments: [...ragSources],
       };
     }
     case "anthropic": {
       const anthropic = createAnthropic({ apiKey: config.apiKey });
       const result = await generateText({
+        // @ts-ignore
         model: anthropic(modelId),
-        tools: { web_search: anthropic.tools.webSearch_20250305({}) } as any,
+        system: PMEGP_SYSTEM_PROMPT,
+        ...textInput,
+        tools: {
+          retrieve_pmegp_context,
+          web_search: anthropic.tools.webSearch_20250305({}),
+        } as any,
         toolChoice: "auto",
         stopWhen: STOP_AFTER_STEPS,
-        prompt,
         providerOptions: {
           anthropic: {
             anthropicBeta: ["web_search_20250305"],
@@ -119,6 +199,7 @@ export async function generateAnswer(
         answer: result.text,
         provider: "anthropic",
         webSearchSources: extractWebSearchSources(result.sources),
+        sourceDocuments: [...ragSources],
       };
     }
     default:
@@ -126,10 +207,27 @@ export async function generateAnswer(
   }
 }
 
-export function createRagStream(config: LLMConfig, prompt: string) {
+export function createRagStream(
+  config: LLMConfig,
+  question: string,
+  retrievePmegp: RetrievePmegpFn,
+  options?: {
+    threadMessages?: Array<{ role: string; content: string }>;
+  },
+): {
+  streamResult: ReturnType<typeof streamText>;
+  getSourceDocuments: () => string[];
+} {
+  const ragSources = new Set<string>();
+  const retrieve_pmegp_context = createRetrievePmegpTool(
+    retrievePmegp,
+    ragSources,
+  );
   const modelId = config.model || getDefaultModel(config.provider);
+  const textInput = promptOrMessages(question, options?.threadMessages);
   const base = {
-    prompt,
+    system: PMEGP_SYSTEM_PROMPT,
+    ...textInput,
     toolChoice: "auto" as const,
     stopWhen: STOP_AFTER_STEPS,
   };
@@ -137,32 +235,52 @@ export function createRagStream(config: LLMConfig, prompt: string) {
   switch (config.provider) {
     case "google": {
       const google = createGoogleGenerativeAI({ apiKey: config.apiKey });
-      return streamText({
-        model: google(modelId),
-        tools: { google_search: google.tools.googleSearch({}) } as any,
-        ...base,
-      });
+      return {
+        streamResult: streamText({
+          // @ts-ignore
+          model: google(modelId),
+          tools: {
+            retrieve_pmegp_context,
+          } as any,
+          ...base,
+        }),
+        getSourceDocuments: () => [...ragSources],
+      };
     }
     case "openai": {
       const openai = createOpenAI({ apiKey: config.apiKey });
-      return streamText({
-        model: openai(modelId),
-        tools: { web_search: openai.tools.webSearch({}) } as any,
-        ...base,
-      });
+      return {
+        streamResult: streamText({
+          // @ts-ignore
+          model: openai(modelId),
+          tools: {
+            retrieve_pmegp_context,
+            web_search: openai.tools.webSearch({}),
+          } as any,
+          ...base,
+        }),
+        getSourceDocuments: () => [...ragSources],
+      };
     }
     case "anthropic": {
       const anthropic = createAnthropic({ apiKey: config.apiKey });
-      return streamText({
-        model: anthropic(modelId),
-        tools: { web_search: anthropic.tools.webSearch_20250305({}) } as any,
-        ...base,
-        providerOptions: {
-          anthropic: {
-            anthropicBeta: ["web_search_20250305"],
+      return {
+        streamResult: streamText({
+          // @ts-ignore
+          model: anthropic(modelId),
+          tools: {
+            retrieve_pmegp_context,
+            web_search: anthropic.tools.webSearch_20250305({}),
+          } as any,
+          ...base,
+          providerOptions: {
+            anthropic: {
+              anthropicBeta: ["web_search_20250305"],
+            },
           },
-        },
-      });
+        }),
+        getSourceDocuments: () => [...ragSources],
+      };
     }
     default:
       throw new Error(`Unsupported provider: ${config.provider}`);

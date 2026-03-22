@@ -1,12 +1,12 @@
 import { Pinecone } from "@pinecone-database/pinecone";
+import mongoose from "mongoose";
 import { env } from "../config";
 import { ChatModel } from "../models/chat.model";
 import { ChatResponse } from "../types";
 import {
-  buildRagPrompt,
   createRagStream,
   extractWebSearchSources,
-  generateAnswer,
+  generateAnswer as runLlmAnswer,
   LLMConfig,
 } from "./llm.service";
 import { UsageService } from "./usage.service";
@@ -15,15 +15,23 @@ const pinecone = new Pinecone({
   apiKey: env.PINECONE_API_KEY,
 });
 
+const TITLE_MAX = 60;
+
+function truncateTitle(text: string): string {
+  const t = text.trim().replace(/\s+/g, " ");
+  if (t.length <= TITLE_MAX) return t || "New chat";
+  return `${t.slice(0, TITLE_MAX - 1)}…`;
+}
+
 export class ChatService {
   private readonly index = pinecone.Index(env.PINECONE_INDEX);
 
-  private async getContext(
-    question: string,
+  private async searchPmegp(
+    query: string,
   ): Promise<{ context: string; sources: string[] }> {
     const queryResponse = await this.index.searchRecords({
       query: {
-        inputs: { text: question },
+        inputs: { text: query },
         topK: 3,
       },
     });
@@ -39,10 +47,85 @@ export class ChatService {
     return { context, sources };
   }
 
+  async listConversations(userId: string) {
+    const rows = await ChatModel.find({ userId })
+      .sort({ updatedAt: -1 })
+      .select("title updatedAt")
+      .lean();
+
+    return rows.map((r) => ({
+      id: String(r._id),
+      title: r.title || "New chat",
+      updatedAt: (r.updatedAt as Date).toISOString(),
+    }));
+  }
+
+  async getConversationById(userId: string, id: string) {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return null;
+    }
+    const doc = await ChatModel.findOne({
+      _id: id,
+      userId,
+    }).lean();
+    if (!doc) return null;
+    return {
+      id: String(doc._id),
+      title: doc.title || "New chat",
+      messages: doc.messages.map((m) => ({
+        role: m.role,
+        content: m.content,
+      })),
+      updatedAt: (doc.updatedAt as Date).toISOString(),
+    };
+  }
+
+  async deleteConversation(userId: string, id: string): Promise<boolean> {
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return false;
+    }
+    const res = await ChatModel.deleteOne({ _id: id, userId });
+    return res.deletedCount === 1;
+  }
+
+  private async resolveThreadForUserMessage(
+    userId: string,
+    question: string,
+    chatId?: string,
+  ) {
+    if (chatId && mongoose.Types.ObjectId.isValid(chatId)) {
+      const existing = await ChatModel.findOne({
+        _id: chatId,
+        userId,
+      });
+      if (existing) {
+        const updated = await ChatModel.findOneAndUpdate(
+          { _id: existing._id, userId },
+          {
+            $push: { messages: { role: "user", content: question } },
+            $set: {
+              title: existing.title || truncateTitle(question),
+            },
+          },
+          { new: true },
+        ).lean();
+        return updated!;
+      }
+    }
+
+    const created = await ChatModel.create({
+      userId,
+      title: truncateTitle(question),
+      messages: [{ role: "user" as const, content: question }],
+    });
+    return created.toObject();
+  }
+
   async generateAnswer(
     question: string,
     userId: string,
     llmConfig: LLMConfig,
+    conversationId?: string,
   ): Promise<ChatResponse> {
     const hasBYOK = llmConfig.apiKey !== env.GOOGLE_API_KEY;
     const limitCheck = UsageService.checkLimit(userId, hasBYOK);
@@ -53,42 +136,66 @@ export class ChatService {
       );
     }
 
-    try {
-      const { context, sources } = await this.getContext(question);
-      const response = await generateAnswer(question, context, llmConfig);
+    const thread = await this.resolveThreadForUserMessage(
+      userId,
+      question,
+      conversationId,
+    );
+    const threadMessages = thread.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
 
-      UsageService.incrementUsage(userId);
+    const response = await runLlmAnswer(question, llmConfig, {
+      retrievePmegp: (q) => this.searchPmegp(q),
+      threadMessages,
+    });
 
-      await ChatModel.create({
-        userId,
-        messages: [
-          { role: "user", content: question },
-          { role: "assistant", content: response.answer },
-        ],
-      });
+    UsageService.incrementUsage(userId);
 
-      const usage = UsageService.getUsage(userId);
-      return {
-        answer: response.answer,
-        sourceDocuments: sources,
-        webSearchSources: response.webSearchSources,
-        usage: {
-          used: usage.used,
-          remaining: usage.remaining,
-          resetAt: usage.resetAt,
+    await ChatModel.updateOne(
+      { _id: thread._id },
+      {
+        $push: {
+          messages: { role: "assistant" as const, content: response.answer },
         },
-      };
-    } catch (error) {
-      console.error("Error in generateAnswer:", error);
-      throw error;
-    }
+      },
+    );
+
+    const usage = UsageService.getUsage(userId);
+    return {
+      answer: response.answer,
+      sourceDocuments: response.sourceDocuments,
+      webSearchSources: response.webSearchSources,
+      conversationId: String(thread._id),
+      usage: {
+        used: usage.used,
+        remaining: usage.remaining,
+        resetAt: usage.resetAt,
+      },
+    };
   }
 
   async *streamAnswer(
     question: string,
     userId: string,
     llmConfig: LLMConfig,
-  ): AsyncGenerator<{ chunk: string; usage?: any }> {
+    conversationId?: string,
+  ): AsyncGenerator<
+    | { meta: { conversationId: string } }
+    | { chunk: string }
+    | {
+        final: true;
+        conversationId: string;
+        usage: {
+          used: number;
+          remaining: number;
+          resetAt: string;
+          sourceDocuments: string[];
+          webSearchSources: { url: string; title?: string }[];
+        };
+      }
+  > {
     const hasBYOK = llmConfig.apiKey !== env.GOOGLE_API_KEY;
     const limitCheck = UsageService.checkLimit(userId, hasBYOK);
 
@@ -98,9 +205,25 @@ export class ChatService {
       );
     }
 
-    const { context, sources } = await this.getContext(question);
-    const prompt = buildRagPrompt(context, question);
-    const streamResult = createRagStream(llmConfig, prompt);
+    const thread = await this.resolveThreadForUserMessage(
+      userId,
+      question,
+      conversationId,
+    );
+    const convId = String(thread._id);
+    yield { meta: { conversationId: convId } };
+
+    const threadMessages = thread.messages.map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
+    const { streamResult, getSourceDocuments } = createRagStream(
+      llmConfig,
+      question,
+      (q) => this.searchPmegp(q),
+      { threadMessages },
+    );
 
     let fullAnswer = "";
 
@@ -110,25 +233,28 @@ export class ChatService {
     }
 
     const webSearchSources = extractWebSearchSources(await streamResult.sources);
+    const sourceDocuments = getSourceDocuments();
 
     UsageService.incrementUsage(userId);
 
-    await ChatModel.create({
-      userId,
-      messages: [
-        { role: "user", content: question },
-        { role: "assistant", content: fullAnswer },
-      ],
-    });
+    await ChatModel.updateOne(
+      { _id: thread._id },
+      {
+        $push: {
+          messages: { role: "assistant" as const, content: fullAnswer },
+        },
+      },
+    );
 
     const usage = UsageService.getUsage(userId);
     yield {
-      chunk: "",
+      final: true,
+      conversationId: convId,
       usage: {
         used: usage.used,
         remaining: usage.remaining,
         resetAt: usage.resetAt,
-        sourceDocuments: sources,
+        sourceDocuments,
         webSearchSources,
       },
     };

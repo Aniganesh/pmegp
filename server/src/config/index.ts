@@ -5,6 +5,7 @@ config();
 
 const envSchema = z.object({
   PORT: z.string().default('5000'),
+  CLIENT_ORIGINS: z.string().default('http://localhost:5173'),
   MONGODB_URI: z.string(),
   GOOGLE_API_KEY: z.string(),
   PINECONE_API_KEY: z.string(),

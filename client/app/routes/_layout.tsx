@@ -35,7 +35,7 @@ export default function AppLayout() {
           <div className="flex gap-2">{/* empty div simply for positioning */}</div>
         </div>
       </header>
-      <main className="flex-1">
+      <main className="flex-1 overflow-hidden">
         <Outlet />
       </main>
     </div>

@@ -1,11 +1,12 @@
-import { Request, Response } from "express";
+import { Response } from "express";
 import { env } from "../config";
+import { AuthenticatedRequest } from "../middleware/user";
 import { ChatService } from "../services/chat.service";
 import { LLMProvider } from "../services/llm.service";
 
 const chatService = new ChatService();
 
-function userProvidedApiKey(req: Request): string | undefined {
+function userProvidedApiKey(req: AuthenticatedRequest): string | undefined {
   const h = req.headers["x-api-key"];
   if (typeof h === "string" && h.trim()) return h.trim();
   if (
@@ -18,11 +19,11 @@ function userProvidedApiKey(req: Request): string | undefined {
   return undefined;
 }
 
-function resolveApiKey(req: Request): string {
+function resolveApiKey(req: AuthenticatedRequest): string {
   return userProvidedApiKey(req) ?? env.GOOGLE_API_KEY;
 }
 
-function resolveProvider(req: Request): LLMProvider {
+function resolveProvider(req: AuthenticatedRequest): LLMProvider {
   const h = req.headers["x-api-provider"];
   if (h === "google" || h === "openai" || h === "anthropic") return h;
   const b = (req.body as { provider?: string })?.provider;
@@ -31,14 +32,63 @@ function resolveProvider(req: Request): LLMProvider {
 }
 
 export class ChatController {
-  async ask(req: Request, res: Response) {
+  async listConversations(req: AuthenticatedRequest, res: Response) {
     try {
-      const { question } = req.body;
-      const userId = (req as any).userId || "anonymous";
+      const userId = req.userId ?? "anonymous";
+      const list = await chatService.listConversations(userId);
+      return res.json(list);
+    } catch (error) {
+      console.error("Error in listConversations:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+
+  async getConversation(req: AuthenticatedRequest, res: Response) {
+    try {
+      const userId = req.userId ?? "anonymous";
+      const { id } = req.params;
+      const conv = await chatService.getConversationById(userId, id);
+      if (!conv) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+      return res.json(conv);
+    } catch (error) {
+      console.error("Error in getConversation:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+
+  async deleteConversation(req: AuthenticatedRequest, res: Response) {
+    try {
+      const userId = req.userId ?? "anonymous";
+      const { id } = req.params;
+      const ok = await chatService.deleteConversation(userId, id);
+      if (!ok) {
+        return res.status(404).json({ error: "Conversation not found" });
+      }
+      return res.status(204).send();
+    } catch (error) {
+      console.error("Error in deleteConversation:", error);
+      return res.status(500).json({ error: "Internal server error" });
+    }
+  }
+
+  async ask(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { question, conversationId: bodyConvId } = req.body as {
+        question?: string;
+        conversationId?: string;
+      };
+      const userId = req.userId ?? "anonymous";
 
       if (!question) {
         return res.status(400).json({ error: "Question is required" });
       }
+
+      const conversationId =
+        typeof bodyConvId === "string" && bodyConvId.trim()
+          ? bodyConvId.trim()
+          : undefined;
 
       const llmConfig = {
         provider: resolveProvider(req),
@@ -49,6 +99,7 @@ export class ChatController {
         question,
         userId,
         llmConfig,
+        conversationId,
       );
       return res.json(response);
     } catch (error: any) {
@@ -60,9 +111,9 @@ export class ChatController {
     }
   }
 
-  async getChatHistory(req: Request, res: Response) {
+  async getChatHistory(req: AuthenticatedRequest, res: Response) {
     try {
-      const userId = (req as any).userId || "anonymous";
+      const userId = req.userId ?? "anonymous";
       const history = await chatService.getChatHistory(userId);
       return res.json(history);
     } catch (error) {
@@ -71,9 +122,9 @@ export class ChatController {
     }
   }
 
-  async getUsage(req: Request, res: Response) {
+  async getUsage(req: AuthenticatedRequest, res: Response) {
     try {
-      const userId = (req as any).userId || "anonymous";
+      const userId = req.userId ?? "anonymous";
       const hasBYOK = !!userProvidedApiKey(req);
 
       const usage = chatService.getUsage(userId);
@@ -87,7 +138,7 @@ export class ChatController {
     }
   }
 
-  async validateKey(req: Request, res: Response) {
+  async validateKey(req: AuthenticatedRequest, res: Response) {
     try {
       const { apiKey, provider } = req.body;
 
@@ -104,7 +155,9 @@ export class ChatController {
       const { generateAnswer } = await import("../services/llm.service");
 
       try {
-        await generateAnswer("Hello", "Test context", { provider, apiKey });
+        await generateAnswer("Hello", { provider, apiKey }, {
+          retrievePmegp: async () => ({ context: "", sources: [] }),
+        });
         return res.json({ valid: true });
       } catch (keyError: any) {
         return res.status(400).json({
@@ -118,9 +171,9 @@ export class ChatController {
     }
   }
 
-  async stream(req: Request, res: Response) {
+  async stream(req: AuthenticatedRequest, res: Response) {
     const question = req.body.question as string;
-    const userId = (req as any).userId || "anonymous";
+    const userId = req.userId ?? "anonymous";
 
     if (!question) {
       return res.status(400).json({ error: "Question is required" });
@@ -131,9 +184,14 @@ export class ChatController {
     res.setHeader("Connection", "keep-alive");
 
     try {
-      const body = req.body as { model?: string };
+      const body = req.body as { model?: string; conversationId?: string };
       const modelFromQuery =
         typeof req.query.model === "string" ? req.query.model : undefined;
+
+      const conversationId =
+        typeof body.conversationId === "string" && body.conversationId.trim()
+          ? body.conversationId.trim()
+          : undefined;
 
       const llmConfig = {
         provider: resolveProvider(req),
@@ -141,22 +199,41 @@ export class ChatController {
         model: body.model ?? modelFromQuery,
       };
 
-      const stream = chatService.streamAnswer(question, userId, llmConfig);
+      const stream = chatService.streamAnswer(
+        question,
+        userId,
+        llmConfig,
+        conversationId,
+      );
 
       for await (const data of stream) {
-        if (data.chunk) {
-          res.write(`data: ${JSON.stringify({ chunk: data.chunk })}\n\n`);
-        }
-        if (data.usage) {
+        if ("meta" in data && data.meta) {
+          res.write(`event: meta\n`);
           res.write(
-            `data: ${JSON.stringify({ done: true, usage: data.usage })}\n\n`,
+            `data: ${JSON.stringify({
+              conversationId: data.meta.conversationId,
+            })}\n\n`,
+          );
+        } else if ("chunk" in data && data.chunk) {
+          res.write(`event: delta\n`);
+          res.write(`data: ${JSON.stringify({ chunk: data.chunk })}\n\n`);
+        } else if ("final" in data && data.final) {
+          res.write(`event: final\n`);
+          res.write(
+            `data: ${JSON.stringify({
+              conversationId: data.conversationId,
+              usage: data.usage,
+            })}\n\n`,
           );
         }
       }
     } catch (error: any) {
       console.error("Error in stream controller:", error);
+      res.write(`event: error\n`);
       res.write(
-        `data: ${JSON.stringify({ error: error.message || "Stream error" })}\n\n`,
+        `data: ${JSON.stringify({
+          error: error.message || "Stream error",
+        })}\n\n`,
       );
     } finally {
       res.end();

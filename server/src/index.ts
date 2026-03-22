@@ -10,8 +10,25 @@ import { userIdentification } from './middleware/user';
 
 const app = express();
 
+const allowedOrigins = env.CLIENT_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean);
+
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, allowedOrigins[0] ?? true);
+        return;
+      }
+      if (allowedOrigins.includes(origin)) {
+        callback(null, origin);
+        return;
+      }
+      callback(new Error('Not allowed by CORS'));
+    },
+    credentials: true,
+  }),
+);
 app.use(cookieParser());
 app.use(express.json());
 app.use(userIdentification);
