@@ -3,7 +3,7 @@ import type { Route } from "./+types/home";
 
 export async function loader() {
   try {
-    const response = await fetch("/api/api/projects");
+    const response = await fetch("/api/projects");
     const projects = await response.json();
     return { projects };
   } catch (error) {

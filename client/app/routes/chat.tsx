@@ -12,7 +12,7 @@ import useStreamingAgent, {
 } from "~/lib/generic-streaming-agent/hooks/useStreamingAgent";
 import { cn } from "~/lib/utils";
 
-const API_BASE = "/api";
+const API_BASE = "";
 
 const MD_MIN_WIDTH = "(min-width: 768px)";
 
