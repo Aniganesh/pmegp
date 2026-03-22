@@ -1,10 +1,24 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+} from "react";
 import ReactMarkdown from "react-markdown";
+import { PanelLeft, PanelLeftClose } from "lucide-react";
 import useStreamingAgent, {
   type ChatMessage,
 } from "~/lib/generic-streaming-agent/hooks/useStreamingAgent";
+import { cn } from "~/lib/utils";
 
 const API_BASE = "http://localhost:5000";
+
+const MD_MIN_WIDTH = "(min-width: 768px)";
+
+function isMobileViewport(): boolean {
+  return window.matchMedia("(max-width: 767px)").matches;
+}
 
 interface Usage {
   used: number;
@@ -93,8 +107,8 @@ function ChatThread({
 
   return (
     <div className="flex flex-col flex-1 min-w-0">
-      <div className="flex-1 overflow-y-auto p-4">
-        <div className="max-w-2xl mx-auto space-y-4">
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-4xl mx-auto space-y-4">
           {messages.length === 0 && (
             <div className="text-center text-gray-500 py-8">
               Ask me anything about PMEGP projects!
@@ -171,6 +185,19 @@ export default function Chat() {
   const [loadingList, setLoadingList] = useState(true);
   const [loadingThread, setLoadingThread] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+
+  useLayoutEffect(() => {
+    if (window.matchMedia(MD_MIN_WIDTH).matches) {
+      setSidebarCollapsed(false);
+    }
+  }, []);
+
+  const collapseSidebarIfMobile = useCallback(() => {
+    if (isMobileViewport()) {
+      setSidebarCollapsed(true);
+    }
+  }, []);
 
   const fetchUsage = useCallback(async () => {
     try {
@@ -226,6 +253,7 @@ export default function Chat() {
     setActiveConversationId(null);
     setLoadedMessages([]);
     setPanelKey((k) => k + 1);
+    collapseSidebarIfMobile();
   };
 
   const openConversation = async (id: string) => {
@@ -241,6 +269,7 @@ export default function Chat() {
       setLoadedMessages(mapApiToMessages(data.messages));
       setActiveConversationId(id);
       setPanelKey((k) => k + 1);
+      collapseSidebarIfMobile();
     } catch (e) {
       console.error(e);
       setError("Could not load conversation");
@@ -313,17 +342,23 @@ export default function Chat() {
 
   return (
     <div className="flex h-[calc(100vh-50px)] bg-gray-50">
-      <aside className="w-64 shrink-0 border-r bg-white flex flex-col">
-        <div className="p-2 border-b flex gap-2">
+      <aside
+        className={cn(
+          "shrink-0 border-r bg-white flex flex-col overflow-hidden transition-[width] duration-200 ease-out min-w-0",
+          sidebarCollapsed ? "w-0 border-transparent" : "w-64",
+        )}
+        aria-hidden={sidebarCollapsed}
+      >
+        <div className="p-2 border-b">
           <button
             type="button"
             onClick={startNewChat}
-            className="flex-1 px-2 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="w-full px-2 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
           >
             New chat
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-1">
+        <div className="flex-1 overflow-y-auto p-1 min-w-0">
           {listError && (
             <div className="text-xs text-red-600 p-2 mb-1">
               {listError}
@@ -381,6 +416,19 @@ export default function Chat() {
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+        <div className="p-2 border-t shrink-0">
+          {!sidebarCollapsed && (
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(true)}
+              className="w-full flex items-center justify-center p-1.5 rounded border border-gray-200 text-gray-600 hover:bg-gray-50"
+              aria-label="Collapse sidebar"
+              aria-expanded={true}
+            >
+              <PanelLeftClose className="size-4" aria-hidden />
+            </button>
           )}
         </div>
       </aside>
@@ -451,16 +499,32 @@ export default function Chat() {
               </div>
             </div>
           )}
-          <div className="max-w-2xl mx-auto flex justify-center gap-2 py-1">
-            <button
-              type="button"
-              onClick={() => {
-                setShowSettings((curr) => !curr);
-              }}
-              className="text-sm text-gray-600 underline"
-            >
-              Settings
-            </button>
+          <div className="flex items-center w-full gap-2 py-1">
+            <div className="shrink-0 w-10 flex justify-center">
+              {sidebarCollapsed ? (
+                <button
+                  type="button"
+                  onClick={() => setSidebarCollapsed(false)}
+                  className="p-1.5 rounded border border-gray-200 text-gray-600 hover:bg-gray-50"
+                  aria-label="Expand sidebar"
+                  aria-expanded={false}
+                >
+                  <PanelLeft className="size-4" aria-hidden />
+                </button>
+              ) : null}
+            </div>
+            <div className="flex-1 flex justify-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSettings((curr) => !curr);
+                }}
+                className="text-sm text-gray-600 underline"
+              >
+                Settings
+              </button>
+            </div>
+            <div className="shrink-0 w-10" aria-hidden />
           </div>
           {usage && (
             <div className="text-center text-sm text-gray-500">
