@@ -114,10 +114,9 @@ export function ProjectsTable({ projects }: ProjectsTableProps) {
 			},
 		},
 	];
-	console.log({ projects });
 
 	return (
-		<div className="container mx-auto py-6 overflow-y-auto">
+		<div className="container mx-auto py-6 overflow-y-auto ">
 			<h1 className="text-2xl font-bold mb-4 text-center">PMEGP - Info</h1>
 			<p className="text-sm text-gray-600 dark:text-gray-400 mb-6 italic">
 				All information is sourced from the PMEGP portal at{" "}
